@@ -1,7 +1,5 @@
 package mkl.testarea.pdfbox3.content;
 
-import static org.junit.jupiter.api.Assertions.*;
-
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
@@ -9,14 +7,20 @@ import java.util.ArrayList;
 import java.util.List;
 
 import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.io.RandomAccessReadBuffer;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
 import org.apache.pdfbox.pdmodel.PDPageContentStream.AppendMode;
+import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.common.PDRectangle;
+import org.apache.pdfbox.pdmodel.font.PDFont;
+import org.apache.pdfbox.pdmodel.graphics.state.PDGraphicsState;
+import org.apache.pdfbox.pdmodel.graphics.state.PDTextState;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.text.TextPosition;
+import org.apache.pdfbox.util.Matrix;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +32,7 @@ class CopyFormattedPageText {
         RESULT_FOLDER.mkdirs();
     }
 
+    /** @see #copyText(PDDocument, int, PDDocument, PDPage) */
     @Test
     void testCopyFromElonInput() throws IOException {
         try (
@@ -40,6 +45,7 @@ class CopyFormattedPageText {
         }
     }
 
+    /** @see #copyText(PDDocument, int, PDDocument, PDPage) */
     @Test
     void testCopyFromTemplateTank() throws IOException {
         try (
@@ -52,6 +58,7 @@ class CopyFormattedPageText {
         }
     }
 
+    /** @see #copyText(PDDocument, int, PDDocument, PDPage) */
     @Test
     void testCopyFromTestDocumentSigned() throws IOException {
         try (
@@ -64,6 +71,7 @@ class CopyFormattedPageText {
         }
     }
 
+    /** @see #copyText(PDDocument, int, PDDocument, PDPage) */
     void copyText(PDDocument source, PDDocument target) throws IOException {
         for (int i = 0; i < source.getNumberOfPages(); i++) {
             PDPage sourcePage = source.getPage(i);
@@ -122,4 +130,165 @@ class CopyFormattedPageText {
             contentStream.endText();
         }
     }
+
+    /**
+     * <a href="https://stackoverflow.com/questions/77939174/how-to-fix-text-positioning-during-recreation-of-pdf">
+     * How to Fix text positioning during recreation of pdf
+     * </a>
+     * <br/>
+     * <a href="https://www.princexml.com/howcome/2016/samples/invoice/index.pdf">
+     * index.pdf
+     * </a> as "InvoiceYesLogic.pdf"
+     * <p>
+     * This is the code of the OP with simplifications and additions due to
+     * incomplete code provided by the OP. And the document looks very much
+     * like the screenshot of the document the OP provided.
+     * </p>
+     * <p>
+     * Apparently the code works with this document. Thus, the issue most
+     * likely is caused by the code pieces not provided by the OP.
+     * </p>
+     * 
+     * @see #copyTextLikeNitishKumar(PDDocument, int, PDDocument, PDPage)
+     */
+    @Test
+    void testCopyLikeNitishKumarFromInvoiceYesLogic() throws IOException {
+        try (
+            InputStream resource = getClass().getResourceAsStream("InvoiceYesLogic.pdf");
+            PDDocument source = Loader.loadPDF(new RandomAccessReadBuffer(resource));
+            PDDocument target = new PDDocument()
+        ) {
+            copyText(source, target);
+            target.save(new File(RESULT_FOLDER, "InvoiceYesLogic-TextCopyLikeNitishKumar.pdf"));
+        }
+    }
+
+    /** @see #copyTextLikeNitishKumar(PDDocument, int, PDDocument, PDPage) */
+    void copyTextLikeNitishKumar(PDDocument source, PDDocument target) throws IOException {
+        for (int i = 0; i < source.getNumberOfPages(); i++) {
+            PDPage sourcePage = source.getPage(i);
+            PDPage targetPage = null;
+            if (i < target.getNumberOfPages())
+                targetPage = target.getPage(i);
+            else
+                target.addPage(targetPage = new PDPage(sourcePage.getMediaBox()));
+
+            PDResources targetResources = targetPage.getResources();
+            if (targetResources == null)
+                targetPage.setResources(targetResources = new PDResources());
+
+            copyTextLikeNitishKumar(source, i, target, targetPage);
+        }
+    }
+
+    /**
+     * <a href="https://stackoverflow.com/questions/77939174/how-to-fix-text-positioning-during-recreation-of-pdf">
+     * How to Fix text positioning during recreation of pdf
+     * </a>
+     * <p>
+     * This is the code of the OP with simplifications and additions due to
+     * incomplete code provided by the OP. Apparently it works. Thus, the
+     * issue most likely is caused by the code pieces not provided by the OP.
+     * </p>
+     * @see #testCopyLikeNitishKumarFromInvoiceYesLogic()
+     */
+    void copyTextLikeNitishKumar(PDDocument source, int sourcePageNumber, PDDocument target, PDPage targetPage) throws IOException {
+        List<TextPositionsInfo> textPositions = new ArrayList<>();
+        PDFTextStripper pdfTextStripper = new PDFTextStripper() {
+            @Override
+            protected void processTextPosition(TextPosition text) {
+//                textPositionPDGraphicsStatesMap.put(text, getGraphicsState());
+                PDGraphicsState state = getGraphicsState();
+                PDTextState textState = state.getTextState();
+                float fontSize = textState.getFontSize();
+                float horizontalScaling = textState.getHorizontalScaling() / 100f;
+                float charSpacing = textState.getCharacterSpacing();
+
+                // put the text state parameters into matrix form
+                Matrix parameters = new Matrix(
+                           fontSize * horizontalScaling, 0, // 0
+                           0, fontSize,                     // 0
+                           0, textState.getRise());         // 1
+               
+               // text rendering matrix (text space -> device space)
+               Matrix ctm = state.getCurrentTransformationMatrix();
+               Matrix textRenderingMatrix = parameters.multiply(text.getTextMatrix()).multiply(ctm);
+               
+               TextPositionsInfo txtInfo = new TextPositionsInfo();
+               txtInfo.xDir = text.getXDirAdj();
+               txtInfo.yDir = text.getYDirAdj();
+               txtInfo.x =  textRenderingMatrix.getTranslateX();
+               txtInfo.y = textRenderingMatrix.getTranslateY();
+               txtInfo.textMatrix = textRenderingMatrix;
+               txtInfo.height= text.getHeightDir();
+               txtInfo.width = text.getWidthDirAdj(); 
+               txtInfo.unicode = text.getUnicode();
+               txtInfo.fontName = text.getFont().getFontDescriptor().getFontName();
+               txtInfo.fontSize = getActualFontSize(text, getGraphicsState());
+               /*pdfGraphicContent.*/textPositions.add(txtInfo);
+
+// font provisioning not provided by OP. Simple stub.
+targetPage.getResources().put(COSName.getPDFName(txtInfo.fontName), text.getFont());
+            }
+
+            // not provided by OP. Simple stub
+            private float getActualFontSize(TextPosition text, PDGraphicsState graphicsState) {
+                return text.getFontSize();
+            }
+        };
+        pdfTextStripper.setStartPage(sourcePageNumber + 1);
+        pdfTextStripper.setEndPage(sourcePageNumber + 1);
+        pdfTextStripper.getText(source);
+
+        try (PDPageContentStream contentStream = new PDPageContentStream(target, targetPage, AppendMode.APPEND, true, true)) {
+            addTextCharByChar(textPositions, targetPage, contentStream);
+        }
+    }
+
+    /** @see #copyTextLikeNitishKumar(PDDocument, int, PDDocument, PDPage) */
+    private void addTextCharByChar(/*String string,*/ List<TextPositionsInfo> textinfoList, /*TextBBoxinfo textBBoxinfo,*/ PDPage page, PDPageContentStream currentContentStream) throws IOException {
+        PDResources res = page.getResources();
+
+        currentContentStream.beginText(); 
+//        if (textBBoxinfo._ElementType.toLowerCase().equals("h2")) {
+            currentContentStream.beginMarkedContent(COSName.P);
+            for(TextPositionsInfo textInfo : textinfoList) {
+                PDFont font = getFont(res, textInfo.fontName);
+                currentContentStream.setFont(font, textInfo.fontSize);
+                Matrix _tm = textInfo.textMatrix;
+                currentContentStream.newLineAtOffset(_tm.getTranslateX(), _tm.getTranslateY());
+                currentContentStream.setTextMatrix(_tm);
+                currentContentStream.showText(textInfo.unicode);
+            }
+            currentContentStream.endMarkedContent();
+//            addContentToCurrentSection(COSName.P, StandardStructureTypes.H2);
+//        } else if (textBBoxinfo._ElementType.toLowerCase().equals("h1")) {
+//            beginMarkedConent(COSName.P);
+//            for(TextPositionsInfo textInfo : textinfoList) {
+//                PDFont font = getFont(res, textInfo.fontName);
+//                currentContentStream.setFont(font, textInfo.fontSize);
+//                currentContentStream.newLineAtOffset(textInfo.textMatrix.getTranslateX(), textInfo.textMatrix.getTranslateY());
+//                currentContentStream.setTextMatrix(textInfo.textMatrix);
+//                currentContentStream.showText(textInfo.unicode);
+//            }
+//            currentContentStream.endMarkedContent();
+//            addContentToCurrentSection(COSName.P, StandardStructureTypes.H1);
+//        }
+        currentContentStream.endText();
+    }
+
+    /** @see #copyTextLikeNitishKumar(PDDocument, int, PDDocument, PDPage) */
+    // not provided by OP. Simple stub
+    private PDFont getFont(PDResources res, String fontName) throws IOException {
+        return res.getFont(COSName.getPDFName(fontName));
+    }
+
+    /** @see #copyTextLikeNitishKumar(PDDocument, int, PDDocument, PDPage) */
+    // not provided by OP. Simple stub
+    class TextPositionsInfo {
+        float xDir, yDir, x, y, height, width, fontSize;
+        Matrix textMatrix;
+        String unicode, fontName;
+    }
+
 }
