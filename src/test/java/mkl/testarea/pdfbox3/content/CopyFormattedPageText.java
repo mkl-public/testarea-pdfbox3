@@ -141,12 +141,15 @@ class CopyFormattedPageText {
      * </a> as "InvoiceYesLogic.pdf"
      * <p>
      * This is the code of the OP with simplifications and additions due to
-     * incomplete code provided by the OP. And the document looks very much
-     * like the screenshot of the document the OP provided.
+     * incomplete code provided by the OP. After fixing it to use the correct
+     * text matrix and making <code>getActualFontSize</code> return 1 all the
+     * time, it works. Also the document looks very much like the screenshot
+     * of the document the OP provided.
      * </p>
      * <p>
-     * Apparently the code works with this document. Thus, the issue most
-     * likely is caused by the code pieces not provided by the OP.
+     * But even without these changes the result looked different from the OP's
+     * screen shots. Thus, a major issue most likely still is in the code pieces
+     * not provided by the OP.
      * </p>
      * 
      * @see #copyTextLikeNitishKumar(PDDocument, int, PDDocument, PDPage)
@@ -158,7 +161,7 @@ class CopyFormattedPageText {
             PDDocument source = Loader.loadPDF(new RandomAccessReadBuffer(resource));
             PDDocument target = new PDDocument()
         ) {
-            copyText(source, target);
+            copyTextLikeNitishKumar(source, target);
             target.save(new File(RESULT_FOLDER, "InvoiceYesLogic-TextCopyLikeNitishKumar.pdf"));
         }
     }
@@ -187,8 +190,11 @@ class CopyFormattedPageText {
      * </a>
      * <p>
      * This is the code of the OP with simplifications and additions due to
-     * incomplete code provided by the OP. Apparently it works. Thus, the
-     * issue most likely is caused by the code pieces not provided by the OP.
+     * incomplete code provided by the OP. After fixing it to use the correct
+     * text matrix and making <code>getActualFontSize</code> return 1 all the
+     * time, it works. But even without these changes the result looked
+     * different from the OP's screen shots. Thus, a major issue most likely
+     * still is in the code pieces not provided by the OP.
      * </p>
      * @see #testCopyLikeNitishKumarFromInvoiceYesLogic()
      */
@@ -212,8 +218,8 @@ class CopyFormattedPageText {
                
                // text rendering matrix (text space -> device space)
                Matrix ctm = state.getCurrentTransformationMatrix();
-               Matrix textRenderingMatrix = parameters.multiply(text.getTextMatrix()).multiply(ctm);
-               
+               Matrix textRenderingMatrix = parameters.multiply(/*text*/state.getTextMatrix()).multiply(ctm);
+
                TextPositionsInfo txtInfo = new TextPositionsInfo();
                txtInfo.xDir = text.getXDirAdj();
                txtInfo.yDir = text.getYDirAdj();
@@ -233,7 +239,7 @@ targetPage.getResources().put(COSName.getPDFName(txtInfo.fontName), text.getFont
 
             // not provided by OP. Simple stub
             private float getActualFontSize(TextPosition text, PDGraphicsState graphicsState) {
-                return text.getFontSize();
+                return 1;
             }
         };
         pdfTextStripper.setStartPage(sourcePageNumber + 1);
