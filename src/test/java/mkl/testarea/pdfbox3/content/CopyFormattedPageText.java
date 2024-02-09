@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Consumer;
 
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.cos.COSName;
@@ -32,7 +33,7 @@ class CopyFormattedPageText {
         RESULT_FOLDER.mkdirs();
     }
 
-    /** @see #copyText(PDDocument, int, PDDocument, PDPage) */
+    /** @see #copyText(PDDocument, int, PDDocument, PDPage, Consumer) */
     @Test
     void testCopyFromElonInput() throws IOException {
         try (
@@ -45,7 +46,7 @@ class CopyFormattedPageText {
         }
     }
 
-    /** @see #copyText(PDDocument, int, PDDocument, PDPage) */
+    /** @see #copyText(PDDocument, int, PDDocument, PDPage, Consumer) */
     @Test
     void testCopyFromTemplateTank() throws IOException {
         try (
@@ -58,7 +59,7 @@ class CopyFormattedPageText {
         }
     }
 
-    /** @see #copyText(PDDocument, int, PDDocument, PDPage) */
+    /** @see #copyText(PDDocument, int, PDDocument, PDPage, Consumer) */
     @Test
     void testCopyFromTestDocumentSigned() throws IOException {
         try (
@@ -71,8 +72,39 @@ class CopyFormattedPageText {
         }
     }
 
-    /** @see #copyText(PDDocument, int, PDDocument, PDPage) */
+    /** @see #copyText(PDDocument, int, PDDocument, PDPage, Consumer) */
+    @Test
+    void testCopyAndChangeFromTestDocumentSigned() throws IOException {
+        try (
+            InputStream resource = getClass().getResourceAsStream("/mkl/testarea/pdfbox3/render/test_document_signed.pdf");
+            PDDocument source = Loader.loadPDF(new RandomAccessReadBuffer(resource));
+            PDDocument target = new PDDocument()
+        ) {
+            copyText(source, target, list -> searchAndReplace(list, "Test", "Port"));
+            target.save(new File(RESULT_FOLDER, "test_document_signed-TextCopyChange.pdf"));
+        }
+    }
+
+    /** @see #copyText(PDDocument, int, PDDocument, PDPage, Consumer) */
+    @Test
+    void testCopyAndChangeAlternativelyFromTestDocumentSigned() throws IOException {
+        try (
+            InputStream resource = getClass().getResourceAsStream("/mkl/testarea/pdfbox3/render/test_document_signed.pdf");
+            PDDocument source = Loader.loadPDF(new RandomAccessReadBuffer(resource));
+            PDDocument target = new PDDocument()
+        ) {
+            copyText(source, target, list -> searchAndReplaceAlternative(list, "DOCUMENT", "COSTUME"));
+            target.save(new File(RESULT_FOLDER, "test_document_signed-TextCopyChangeAlt.pdf"));
+        }
+    }
+
+    /** @see #copyText(PDDocument, int, PDDocument, PDPage, Consumer) */
     void copyText(PDDocument source, PDDocument target) throws IOException {
+        copyText(source, target, null);
+    }
+
+    /** @see #copyText(PDDocument, int, PDDocument, PDPage, Consumer) */
+    void copyText(PDDocument source, PDDocument target, Consumer<List<TextPosition>> updater) throws IOException {
         for (int i = 0; i < source.getNumberOfPages(); i++) {
             PDPage sourcePage = source.getPage(i);
             PDPage targetPage = null;
@@ -80,7 +112,7 @@ class CopyFormattedPageText {
                 targetPage = target.getPage(i);
             else
                 target.addPage(targetPage = new PDPage(sourcePage.getMediaBox()));
-            copyText(source, i, target, targetPage);
+            copyText(source, i, target, targetPage, updater);
         }
     }
 
@@ -100,7 +132,7 @@ class CopyFormattedPageText {
      * and target also will result in weird appearances.
      * </p>
      */
-    void copyText(PDDocument source, int sourcePageNumber, PDDocument target, PDPage targetPage) throws IOException {
+    void copyText(PDDocument source, int sourcePageNumber, PDDocument target, PDPage targetPage, Consumer<List<TextPosition>> updater) throws IOException {
         List<TextPosition> allTextPositions = new ArrayList<>();
         PDFTextStripper pdfTextStripper = new PDFTextStripper() {
             @Override
@@ -112,6 +144,9 @@ class CopyFormattedPageText {
         pdfTextStripper.setStartPage(sourcePageNumber + 1);
         pdfTextStripper.setEndPage(sourcePageNumber + 1);
         pdfTextStripper.getText(source);
+
+        if (updater != null)
+            updater.accept(allTextPositions);
 
         PDRectangle targetPageCropBox = targetPage.getCropBox();
         float yOffset = targetPageCropBox.getUpperRightY() + targetPageCropBox.getLowerLeftY();
@@ -128,6 +163,99 @@ class CopyFormattedPageText {
                 y = position.getY();
             }
             contentStream.endText();
+        }
+    }
+
+    /**
+     * <a href="https://stackoverflow.com/questions/77706995/how-can-i-copy-extracted-text-page-by-page-in-a-document-to-a-new-pdf-document-w">
+     * How can I copy extracted text page by page in a document to a new PDF document with PDFBox?
+     * </a>
+     * <p>
+     * This method replaces a search word in a list of {@link TextPosition} objects
+     * by replacing the letters in each instance by the same number of letters from
+     * the replacement word (as long as available). This is appropriate if the word
+     * is especially formatted (e.g. spaced out) and this special formatting shall be
+     * kept.
+     * </p>
+     * @see #searchAndReplaceAlternative(List, String, String)
+     */
+    void searchAndReplace(List<TextPosition> textPositions, String searchWord, String replacement) {
+        if (searchWord == null || searchWord.length() == 0)
+            return;
+
+        int candidatePosition = 0;
+        String candidate = "";
+        for (int i = 0; i < textPositions.size(); i++) {
+            candidate += textPositions.get(i).getUnicode();
+            if (!searchWord.startsWith(candidate)) {
+                candidate = "";
+                candidatePosition = i+1;
+            } else if (searchWord.length() == candidate.length()) {
+                for (int j = 0; j < searchWord.length();) {
+                    TextPosition textPosition = textPositions.get(candidatePosition);
+                    int length = textPosition.getUnicode().length();
+                    String replacementHere = "";
+                    if (length > 0 && j < replacement.length()) {
+                        int end = j + length;
+                        if (end > replacement.length())
+                            end = replacement.length();
+                        replacementHere = replacement.substring(j, end);
+                        
+                    }
+                    TextPosition newTextPosition = new TextPosition(textPosition.getRotation(),
+                            textPosition.getPageWidth(), textPosition.getPageHeight(), textPosition.getTextMatrix(),
+                            textPosition.getEndX(), textPosition.getEndY(), textPosition.getHeight(),
+                            textPosition.getIndividualWidths()[0], textPosition.getWidthOfSpace(),
+                            replacementHere,
+                            textPosition.getCharacterCodes(), textPosition.getFont(),
+                            textPosition.getFontSize(), (int) textPosition.getFontSizeInPt());
+                    textPositions.set(candidatePosition, newTextPosition);
+                    candidatePosition++;
+                    j += length;
+                }
+            }
+        }
+    }
+
+    /**
+     * <a href="https://stackoverflow.com/questions/77706995/how-can-i-copy-extracted-text-page-by-page-in-a-document-to-a-new-pdf-document-w">
+     * How can I copy extracted text page by page in a document to a new PDF document with PDFBox?
+     * </a>
+     * <p>
+     * This method replaces a search word in a list of {@link TextPosition} objects
+     * by replacing the letters in the first instance by the whole replacement word
+     * and removing the other instances. This is appropriate if the word is not
+     * formatted (e.g. spaced out) and shall be printed naturally.
+     * </p>
+     * @see #searchAndReplace(List, String, String)
+     */
+    void searchAndReplaceAlternative(List<TextPosition> textPositions, String searchWord, String replacement) {
+        if (searchWord == null || searchWord.length() == 0)
+            return;
+
+        int candidatePosition = 0;
+        String candidate = "";
+        for (int i = 0; i < textPositions.size(); i++) {
+            candidate += textPositions.get(i).getUnicode();
+            if (!searchWord.startsWith(candidate)) {
+                candidate = "";
+                candidatePosition = i+1;
+            } else if (searchWord.length() == candidate.length()) {
+                TextPosition textPosition = textPositions.get(candidatePosition);
+                TextPosition newTextPosition = new TextPosition(textPosition.getRotation(),
+                        textPosition.getPageWidth(), textPosition.getPageHeight(), textPosition.getTextMatrix(),
+                        textPosition.getEndX(), textPosition.getEndY(), textPosition.getHeight(),
+                        textPosition.getIndividualWidths()[0], textPosition.getWidthOfSpace(),
+                        replacement,
+                        textPosition.getCharacterCodes(), textPosition.getFont(),
+                        textPosition.getFontSize(), (int) textPosition.getFontSizeInPt());
+                textPositions.set(candidatePosition, newTextPosition);
+
+                while (i > candidatePosition) {
+                    textPositions.remove(i--);
+                }
+                candidatePosition++;
+            }
         }
     }
 
