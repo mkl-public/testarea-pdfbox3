@@ -7,8 +7,8 @@
 	<version>${pdfbox.version}</version>
 	<name>Test area for public PDFBox v3 issues on stackoverflow etc</name>
 	<properties>
-		<pdfbox.version>3.0.5</pdfbox.version>
-		<bc.version>1.70</bc.version>
+		<pdfbox.version>3.0.6</pdfbox.version>
+		<bc.version>1.83</bc.version>
 		<junit.version>5.8.2</junit.version>
 		<maven.compiler.source>11</maven.compiler.source>
 		<maven.compiler.target>11</maven.compiler.target>
@@ -45,13 +45,13 @@
 
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
-			<artifactId>bcprov-jdk15on</artifactId>
+			<artifactId>bcprov-jdk18on</artifactId>
 			<version>${bc.version}</version>
 			<type>jar</type>
 		</dependency>
 		<dependency>
 			<groupId>org.bouncycastle</groupId>
-			<artifactId>bcpkix-jdk15on</artifactId>
+			<artifactId>bcpkix-jdk18on</artifactId>
 			<version>${bc.version}</version>
 			<type>jar</type>
 		</dependency>
